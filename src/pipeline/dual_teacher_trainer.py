@@ -15,6 +15,7 @@ from gnn_student.dual_teacher_student import DistillStudentGNN
 from gnn_student.losses import SemanticClassificationLoss, SoftProbDistillationLoss
 from gnn_teacher.dual_teacher_gnn_teacher import MultiTaskGNNTeacher
 from llm_teacher.dual_teacher_llm import DualTeacherLLM
+from pipeline.main_helpers import _select_query_nodes
 
 
 class DualTeacherTrainer:
@@ -598,9 +599,6 @@ class DualTeacherTrainer:
                 # Restrict query pool to nodes below GNN confidence threshold.
                 uncertain_mask = candidates_mask & (gnn_conf < float(gnn_threshold))
                 uncertain_idx = torch.where(uncertain_mask)[0]
-                uncertain_confs = gnn_conf[uncertain_idx]
-                # Sort ascending: most uncertain first
-                sorted_order = torch.argsort(uncertain_confs)
                 # Query budget is defined as a ratio of the uncertain pool.
                 ratio = float(query_ratio)
                 if ratio < 0.0 or ratio > 1.0:
@@ -608,18 +606,27 @@ class DualTeacherTrainer:
                 query_size = int(uncertain_idx.numel() * ratio)
                 if ratio > 0.0 and query_size == 0 and int(uncertain_idx.numel()) > 0:
                     query_size = 1
-                new_query_indices = uncertain_idx[sorted_order[:query_size]]
+                new_query_indices = _select_query_nodes(
+                    data=data,
+                    query_candidates=uncertain_idx,
+                    query_size=query_size,
+                    seed=seed,
+                    method=getattr(data, "query_selection_method", "cluster_random"),
+                    feature_source=getattr(data, "query_selection_feature_source", "structural"),
+                    num_clusters=getattr(data, "query_selection_num_clusters", 0),
+                )
                 new_query_mask = torch.zeros_like(data.query_mask)
                 new_query_mask[new_query_indices] = True
                 data.query_mask = new_query_mask
                 data.unqueried_mask = train_mask & ~new_query_mask
                 if query_size > 0:
-                    conf_slice = uncertain_confs[sorted_order[:query_size]]
+                    conf_slice = gnn_conf[new_query_indices]
                     print(
                         f"[GNN-Uncertain] Re-selected {query_size}/{int(uncertain_idx.numel())} query nodes "
                         f"below threshold {float(gnn_threshold):.3f} "
                         f"({self.gnn_confidence_threshold_mode}"
                         f"{' q=' + str(self.gnn_confidence_quantile) if self.gnn_confidence_threshold_mode == 'quantile' else ''}) "
+                        f"using {getattr(data, 'query_selection_method', 'cluster_random')} "
                         f"(GNN conf range: {conf_slice.min():.3f}~{conf_slice.max():.3f})"
                     )
                 else:
