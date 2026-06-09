@@ -83,13 +83,34 @@ def parse_args():
         help="Quantile used when --gnn_confidence_threshold_mode=quantile. Example: 0.5 keeps the top half.",
     )
     parser.add_argument("--llm_confidence_threshold", type=float, default=0.0)
+    parser.set_defaults(
+        gnn_priority_llm_fallback=True,
+        llm_query_from_gnn_uncertain_pool=True,
+    )
     parser.add_argument(
         "--gnn_priority_llm_fallback",
+        dest="gnn_priority_llm_fallback",
         action="store_true",
-        help="Use GNN supervision where confident; use LLM supervision only on remaining nodes (no overlap).",
+        help="Use GNN supervision where confident; use LLM supervision only on remaining nodes (default: enabled).",
     )
-    parser.add_argument("--llm_query_from_gnn_uncertain_pool", action="store_true",
-        help="Re-select LLM query nodes from GNN-uncertain pool after GNN teacher training.")
+    parser.add_argument(
+        "--no_gnn_priority_llm_fallback",
+        dest="gnn_priority_llm_fallback",
+        action="store_false",
+        help="Disable GNN-priority LLM fallback routing.",
+    )
+    parser.add_argument(
+        "--llm_query_from_gnn_uncertain_pool",
+        dest="llm_query_from_gnn_uncertain_pool",
+        action="store_true",
+        help="Re-select LLM query nodes from GNN-uncertain pool after GNN teacher training (default: enabled).",
+    )
+    parser.add_argument(
+        "--no_llm_query_from_gnn_uncertain_pool",
+        dest="llm_query_from_gnn_uncertain_pool",
+        action="store_false",
+        help="Disable re-selecting LLM query nodes from the GNN-uncertain pool.",
+    )
 
     parser.add_argument("--output_dir", type=str, default=None)
     return parser.parse_args()
