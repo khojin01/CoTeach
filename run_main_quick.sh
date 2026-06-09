@@ -22,5 +22,7 @@ python src/main_dual_teacher_ssl.py \
   --gnn_confidence_threshold "$GNN_THR" \
   --gnn_confidence_threshold_mode quantile \
   --gnn_confidence_quantile "$GNN_THR" \
+  --gnn_priority_llm_fallback
+  --llm_query_from_gnn_uncertain_pool
   --llm_confidence_threshold "$LLM_THR" \
   --llm_model "${LLM_MODEL:-gpt-3.5-turbo}"
