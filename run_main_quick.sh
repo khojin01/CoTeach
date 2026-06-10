@@ -4,7 +4,7 @@ set -euo pipefail
 DATASET="${1:-cora}"          # ex) cora|citeseer|pubmed|wikics
 BACKBONE="${2:-gcn}"      # ex) gcn|gat|graphsage
 K_SHOT="${3:-3}"                # ex) 1|3|5|7|10
-QR="${4:-0.8}"                  # query_ratio
+QR="${4:-0.1}"                  # query_ratio
 ALPHA="${5:-0.6}"               # alpha
 GNN_THR="${6:-0.5}"            # gnn threshold
 LLM_THR="${7:-0.5}"            # llm threshold
