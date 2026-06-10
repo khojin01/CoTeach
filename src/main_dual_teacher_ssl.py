@@ -25,7 +25,7 @@ def parse_args():
     parser.add_argument("--train_ratio", type=float, default=0.6)
     parser.add_argument("--val_ratio", type=float, default=0.2)
     parser.add_argument("--test_ratio", type=float, default=0.2)
-    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--seed", type=int, default=43)
     parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
     parser.add_argument("--query_selection_method", type=str, default="cluster_random", choices=["random", "cluster_random"])
     parser.add_argument("--query_selection_feature_source", type=str, default="structural", choices=["structural", "semantic"])

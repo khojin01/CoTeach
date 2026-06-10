@@ -396,23 +396,19 @@ class DualTeacherLLM:
         self,
         query_indices: List[int],
         data,
-        few_shot_examples: List[Dict[str, str]] = None,
     ) -> List[Dict[str, object]]:
         cached_queries: List[Dict[str, object]] = []
         for node_id in query_indices:
             record = self._load_node_cache(int(node_id))
-            prompt_key = None
-            if few_shot_examples is not None:
-                prompt = self.build_prompt(
-                    title=data.title_texts[node_id],
-                    abstract=data.abstract_texts[node_id],
-                    few_shot_examples=few_shot_examples,
-                )
-                prompt_key = self._prompt_cache_key(prompt)
+            prompt = self.build_prompt(
+                title=data.title_texts[node_id],
+                abstract=data.abstract_texts[node_id],
+            )
+            prompt_key = self._prompt_cache_key(prompt)
             if not self._is_cache_record_compatible(
                 record or {},
                 prompt_key=prompt_key,
-                require_prompt_key=(prompt_key is not None),
+                require_prompt_key=True,
             ):
                 continue
             cached_queries.append({
@@ -475,7 +471,6 @@ class DualTeacherLLM:
         self,
         title: str,
         abstract: str,
-        few_shot_examples: Optional[List[Dict[str, str]]] = None,
     ) -> str:
         metadata = get_dataset_metadata(self.dataset_name)
         category_lines = [f"- {label}" for label in self.label_names]
@@ -487,16 +482,13 @@ class DualTeacherLLM:
         sections = [
             "[System]",
             f"You are a careful classifier for {metadata['domain']}.",
-            "",
             "[Task]",
             f"Read the title and abstract and estimate a probability distribution over the {len(self.label_names)} candidate categories.",
             "Candidate Categories:",
             *category_lines,
-            "",
             "[Target Paper]",
             f"Title: {title}",
             f"Abstract: {abstract}",
-            "",
             "Requirements:",
             "- `predicted_label` must be exactly one candidate category.",
             "- `class_probs` must contain all candidate categories exactly once.",
@@ -505,7 +497,6 @@ class DualTeacherLLM:
             "- For `predicted_label`, use the canonical category string exactly as listed (do not shorten or paraphrase labels).",
             "- Only assign a very high probability if the title and abstract contain strong and specific evidence for that category.",
             "- Do not output explanations, reasons, or extra text.",
-            "",
             "Output format:",
             "{",
             '  "predicted_label": "<one category>",',
@@ -677,27 +668,6 @@ class DualTeacherLLM:
         filename = f"{dataset_name}_k{k_shot}_qr{query_ratio:.3f}_llm_queries.json"
         return os.path.join(self.cache_dir, filename)
 
-    def _build_k_shot_examples(self, data, k_shot: int) -> List[Dict[str, str]]:
-        if k_shot <= 0 or not hasattr(data, "k_shot_mask"):
-            return []
-        k_shot_mask = data.k_shot_mask.cpu().bool()
-        if int(k_shot_mask.sum().item()) == 0:
-            return []
-        examples: List[Dict[str, str]] = []
-        for class_idx, label_name in enumerate(self.label_names):
-            class_nodes = torch.where(k_shot_mask & (data.y.cpu() == class_idx))[0].tolist()
-            class_nodes = class_nodes[: int(k_shot)]
-            for node_id in class_nodes:
-                raw_text = ""
-                if hasattr(data, "raw_texts") and node_id < len(data.raw_texts):
-                    raw_text = str(data.raw_texts[node_id])
-                if not raw_text:
-                    title = data.title_texts[node_id] if hasattr(data, "title_texts") else ""
-                    abstract = data.abstract_texts[node_id] if hasattr(data, "abstract_texts") else ""
-                    raw_text = f"Title: {title}\nAbstract: {abstract}"
-                examples.append({"text": raw_text, "label": label_name})
-        return examples
-
     def query(self, data, output_path: Optional[str] = None, k_shot: int = 0, write_logs: bool = True) -> Dict[str, torch.Tensor]:
         """Query the selected nodes, drop parse failures, and emit JSON logs."""
         device = data.y.device
@@ -725,7 +695,6 @@ class DualTeacherLLM:
 
         query_indices = torch.where(data.query_mask.cpu())[0].tolist()
         total_requested = len(query_indices)
-        few_shot_examples: List[Dict[str, str]] = self._build_k_shot_examples(data=data, k_shot=int(k_shot))
         node_cache_file_count = len(glob.glob(os.path.join(self.node_cache_dir, "*.json")))
         query_set_cache_path = None
 
@@ -736,7 +705,6 @@ class DualTeacherLLM:
         synthesized_query_set = self._build_query_records_from_node_cache(
             query_indices=query_indices,
             data=data,
-            few_shot_examples=few_shot_examples,
         ) if query_indices else []
         if synthesized_query_set:
             print(
@@ -772,7 +740,6 @@ class DualTeacherLLM:
                     "timestamp": datetime.now().isoformat(),
                     "label_names": self.label_names,
                     "k_shot": int(k_shot),
-                    "k_shot_examples": len(few_shot_examples),
                     "num_requested_queries": total_requested,
                     "num_completed_queries": len(completed_node_ids),
                     "num_valid_queries": int(valid_query_mask.sum().item()),
@@ -830,7 +797,6 @@ class DualTeacherLLM:
             prompt = self.build_prompt(
                 title=data.title_texts[node_id],
                 abstract=data.abstract_texts[node_id],
-                few_shot_examples=few_shot_examples,
             )
             prompt_key = self._prompt_cache_key(prompt)
             node_key = self._node_cache_key(node_id)
@@ -874,7 +840,6 @@ class DualTeacherLLM:
                 prompt = self.build_prompt(
                     title=data.title_texts[node_id],
                     abstract=data.abstract_texts[node_id],
-                    few_shot_examples=few_shot_examples,
                 )
                 prompt_key = self._prompt_cache_key(prompt)
             node_key = self._node_cache_key(node_id)
@@ -986,7 +951,6 @@ class DualTeacherLLM:
                         "timestamp": datetime.now().isoformat(),
                         "label_names": self.label_names,
                         "k_shot": int(k_shot),
-                        "k_shot_examples": len(few_shot_examples),
                         "num_requested_queries": total_requested,
                         "num_completed_queries": len(completed_node_ids) + offset,
                         "num_valid_queries": int(valid_query_mask.sum().item()),
@@ -1029,7 +993,6 @@ class DualTeacherLLM:
                     "timestamp": datetime.now().isoformat(),
                     "label_names": self.label_names,
                     "k_shot": int(k_shot),
-                    "k_shot_examples": len(few_shot_examples),
                     "num_requested_queries": total_requested,
                     "num_completed_queries": len(completed_node_ids) + offset,
                     "num_valid_queries": int(valid_query_mask.sum().item()),
@@ -1065,7 +1028,6 @@ class DualTeacherLLM:
                 "timestamp": datetime.now().isoformat(),
                 "label_names": self.label_names,
                 "k_shot": int(k_shot),
-                "k_shot_examples": len(few_shot_examples),
                 "num_requested_queries": total_requested,
                 "num_completed_queries": len(logs),
                 "num_valid_queries": int(valid_query_mask.sum().item()),
