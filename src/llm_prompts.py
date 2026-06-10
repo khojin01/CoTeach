@@ -1,13 +1,12 @@
-"""LLM teacher prompt/response utilities (single zero-shot top-3 strategy)."""
+"""LLM teacher prompt/response utilities for a single JSON-distribution prompt."""
 
 import re
 import json
-import torch
 import numpy as np
 from typing import List, Dict, Any, Optional
 
 # Prompt strategy tag (also used in cache directory names)
-LLM_PROMPT_STRATEGY = "zero_shot_top3_v1"
+LLM_PROMPT_STRATEGY = "json_class_probs_v1"
 
 
 # Dataset metadata
@@ -78,65 +77,77 @@ def get_dataset_metadata(dataset_name: str) -> Dict[str, Any]:
 
 
 def create_zero_shot_top3_prompt(
-    node_features: Optional[torch.Tensor],
+    node_features: Optional[Any],
     dataset_name: str,
     label_names: Optional[List[str]] = None,
     node_text: Optional[str] = None,
     k_shot_examples: Optional[List[Dict[str, Any]]] = None,
     **kwargs
 ) -> str:
-    """Build the prompt with System/K-Shot Examples/Target Paper/Instruction format."""
+    """Build the single supported JSON-distribution prompt format."""
     metadata = get_dataset_metadata(dataset_name)
-    
+
     if label_names is None:
         label_names = metadata['label_names']
-    
-    if node_text:
-        text_content = node_text
-    else:
-        text_content = "No text information available"
 
-    # System message
-    category_list = ", ".join(label_names)
-    num_categories = len(label_names)
-    
-    system_msg = f"""[System]
-You are an expert in reasoning and classifying {metadata['domain']} about {metadata['description']}. Analyze the given title and abstract of the paper and classify it into one of the {num_categories} categories.
-Candidate Categories: ({category_list})"""
-    
-    # K-Shot Examples
-    k_shot_text = ""
-    if k_shot_examples and len(k_shot_examples) > 0:
-        k_shot_text = "[K-Shot Examples]\n"
-        for i, example in enumerate(k_shot_examples, 1):
-            k_shot_text += f"Example {i}:\n{example['text']}\nLabel: {example['label']}\n\n"
-    
-    # Target paper (node text)
-    if node_text:
-        target_paper = f"""[Target Paper]
-{node_text}"""
-    else:
-        target_paper = "[Target Paper]\n(No text available)"
-    
-    # Instruction
-    instruction = f"""[Instruction]
-You must format your response exactly as shown below. Do not add any other explanations.
+    raw_text = (node_text or "").strip()
+    title = "Untitled"
+    abstract = "No abstract available."
+    if raw_text:
+        if "Title:" in raw_text and "Abstract:" in raw_text:
+            title_match = re.search(r"Title:\s*(.+?)(?:\n|Abstract:)", raw_text, re.DOTALL)
+            abstract_match = re.search(r"Abstract:\s*(.+)$", raw_text, re.DOTALL)
+            if title_match:
+                title = title_match.group(1).strip() or title
+            if abstract_match:
+                abstract = abstract_match.group(1).strip() or abstract
+        else:
+            lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+            if len(lines) >= 2:
+                title = lines[0]
+                abstract = " ".join(lines[1:])
+            elif lines:
+                title = lines[0]
+                abstract = lines[0]
 
-Reasoning Process: [Extract core terms from the target paper and explain in detail the academic principles it is based on]
-Final Category: [Output exactly one of the {len(label_names)} candidate categories]"""
-    
-    # Combine all parts
-    if k_shot_text:
-        prompt = f"{system_msg}\n\n{k_shot_text}{target_paper}\n\n{instruction}"
-    else:
-        prompt = f"{system_msg}\n\n{target_paper}\n\n{instruction}"
-    
-    return prompt
+    category_lines = [f"- {label}" for label in label_names]
+    class_probs_lines = []
+    for idx, label in enumerate(label_names):
+        suffix = "," if idx < len(label_names) - 1 else ""
+        class_probs_lines.append(f'    "{label}": 0.00{suffix}')
+
+    sections = [
+        "[System]",
+        f"You are a careful classifier for {metadata['domain']}.",
+        "[Task]",
+        f"Read the title and abstract and estimate a probability distribution over the {len(label_names)} candidate categories.",
+        "Candidate Categories:",
+        *category_lines,
+        "[Target Paper]",
+        f"Title: {title}",
+        f"Abstract: {abstract}",
+        "Requirements:",
+        "- `predicted_label` must be exactly one candidate category.",
+        "- `class_probs` must contain all candidate categories exactly once.",
+        "- All probabilities must be decimals between 0.00 and 1.00.",
+        "- The probabilities must sum to exactly 1.00.",
+        "- For `predicted_label`, use the canonical category string exactly as listed (do not shorten or paraphrase labels).",
+        "- Only assign a very high probability if the title and abstract contain strong and specific evidence for that category.",
+        "- Do not output explanations, reasons, or extra text.",
+        "Output format:",
+        "{",
+        '  "predicted_label": "<one category>",',
+        '  "class_probs": {',
+        *class_probs_lines,
+        "  }",
+        "}",
+    ]
+    return "\n".join(sections)
 
 
 def create_prompt(node_features=None, dataset_name=None, label_names=None, 
                   node_text=None, k_shot_examples=None, **kwargs):
-    """Compatibility wrapper for create_zero_shot_top3_prompt."""
+    """Compatibility wrapper for the single supported prompt format."""
     return create_zero_shot_top3_prompt(
         node_features=node_features,
         dataset_name=dataset_name,
@@ -292,42 +303,30 @@ def _extract_class_probabilities(prob_obj: Any, label_names: List[str]) -> Optio
 
 
 def parse_llm_response(response_text: str, label_names: List[str]) -> Dict[str, Any]:
-    """
-    Parse LLM response in:
-    Reasoning Process: ...
-    Final Category: ...
-
-    Returns answer and reasoning only.
-    """
+    """Parse a JSON-style label distribution response with legacy fallback."""
     if not response_text or not label_names:
         return {
             'answer': None,
             'reasoning': ''
         }
-    
-    result = {
-        'answer': None,
-        'reasoning': ''
-    }
-    
-    # Extract reasoning section
-    reasoning_match = re.search(r'Reasoning Process:\s*(.+?)(?=Final Category:|$)', response_text, re.DOTALL | re.IGNORECASE)
-    if reasoning_match:
-        result['reasoning'] = reasoning_match.group(1).strip()
-    
-    # Extract predicted category
+
+    result = {'answer': None, 'reasoning': ''}
+
+    try:
+        payload = json.loads(response_text)
+        predicted = payload.get("predicted_label")
+        resolved = _resolve_label(predicted, label_names, response_text=response_text)
+        if resolved is not None:
+            result["answer"] = resolved
+            return result
+    except Exception:
+        pass
+
     category_match = re.search(r'Final Category:\s*(.+?)(?:\n|$)', response_text, re.IGNORECASE)
     if category_match:
         predicted_category = category_match.group(1).strip()
-        
-        # Resolve category against known labels
-        matched_label = None
         for label in label_names:
             if _fuzzy_match_label(predicted_category, label):
-                matched_label = label
+                result['answer'] = label
                 break
-        
-        if matched_label:
-            result['answer'] = matched_label
-    
     return result
