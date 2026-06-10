@@ -81,7 +81,6 @@ def create_zero_shot_top3_prompt(
     dataset_name: str,
     label_names: Optional[List[str]] = None,
     node_text: Optional[str] = None,
-    k_shot_examples: Optional[List[Dict[str, Any]]] = None,
     **kwargs
 ) -> str:
     """Build the single supported JSON-distribution prompt format."""
@@ -146,14 +145,13 @@ def create_zero_shot_top3_prompt(
 
 
 def create_prompt(node_features=None, dataset_name=None, label_names=None, 
-                  node_text=None, k_shot_examples=None, **kwargs):
+                  node_text=None, **kwargs):
     """Compatibility wrapper for the single supported prompt format."""
     return create_zero_shot_top3_prompt(
         node_features=node_features,
         dataset_name=dataset_name,
         label_names=label_names,
         node_text=node_text,
-        k_shot_examples=k_shot_examples,
         **kwargs
     )
 
