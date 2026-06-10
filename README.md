@@ -3,7 +3,7 @@
 This repository contains the implementation of **CoTeach**, a confidence-aware dual-teacher framework for few-shot node classification on text-attributed graphs.
 
 CoTeach asks a simple question: **who should teach each node?** For nodes where graph structure is reliable, a GNN teacher provides supervision. For nodes where graph structure is uncertain, an LLM teacher provides semantic supervision from node text.
-<img width="900" height="493" alt="image" src="./assets/Figure.png" />
+<img width="900" height="493" alt="image" src="./Figure.png" />
 
 ## Method Overview
 
