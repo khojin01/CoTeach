@@ -109,7 +109,7 @@ The code also checks `OPENAI_KEY` and `config.yaml`.
 From the repository root:
 
 ```bash
-./run_main_quick.sh cora gcn 3 0.8 0.6 0.5 0.5
+./run_main_quick.sh cora gcn 3 0.1 0.6 0.5 0.5
 ```
 
 ## Datasets
