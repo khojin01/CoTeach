@@ -106,7 +106,6 @@ class DualTeacherTrainer:
         self.llm_model_name = llm_model_name
         self.llm_temperature = llm_temperature
         self.llm_max_output_tokens = llm_max_output_tokens
-        self.llm_embedder_device = str(device)
         self.gnn_teacher_cache_dir = os.environ.get("DUAL_TEACHER_GNN_CACHE_DIR", "")
 
     def _resolve_gnn_confidence_threshold(self, gnn_conf: torch.Tensor, base_mask: torch.Tensor) -> float:
@@ -648,9 +647,6 @@ class DualTeacherTrainer:
                 temperature=self.llm_temperature,
                 max_output_tokens=self.llm_max_output_tokens,
                 cache_dir=os.environ.get("LLM_CACHE_DIR", default_cache_dir),
-                embedder_device=self.llm_embedder_device,
-                cache_seed=seed,
-                enable_queryset_cache=False,
             )
             llm_outputs = llm_teacher.query(data, output_path=None, k_shot=int(k_shot), write_logs=False)
         else:
